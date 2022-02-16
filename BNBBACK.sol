@@ -1,5 +1,5 @@
 /**
- *Submitted for verification at BscScan.com on 2022-02-07
+ *Submitted for verification at BscScan.com on 2022-02-15
 */
 
 /**
@@ -505,60 +505,6 @@ contract ERC20 is Context, IERC20, IERC20Metadata {
         return true;
     }
 
-    /**
-     * @dev Atomically increases the allowance granted to `spender` by the caller.
-     *
-     * This is an alternative to {approve} that can be used as a mitigation for
-     * problems described in {IERC20-approve}.
-     *
-     * Emits an {Approval} event indicating the updated allowance.
-     *
-     * Requirements:
-     *
-     * - `spender` cannot be the zero address.
-     */
-    function increaseAllowance(address spender, uint256 addedValue)
-        public
-        virtual
-        returns (bool)
-    {
-        _approve(
-            _msgSender(),
-            spender,
-            _allowances[_msgSender()][spender].add(addedValue)
-        );
-        return true;
-    }
-
-    /**
-     * @dev Atomically decreases the allowance granted to `spender` by the caller.
-     *
-     * This is an alternative to {approve} that can be used as a mitigation for
-     * problems described in {IERC20-approve}.
-     *
-     * Emits an {Approval} event indicating the updated allowance.
-     *
-     * Requirements:
-     *
-     * - `spender` cannot be the zero address.
-     * - `spender` must have allowance for the caller of at least
-     * `subtractedValue`.
-     */
-    function decreaseAllowance(address spender, uint256 subtractedValue)
-        public
-        virtual
-        returns (bool)
-    {
-        _approve(
-            _msgSender(),
-            spender,
-            _allowances[_msgSender()][spender].sub(
-                subtractedValue,
-                "ERC20: decreased allowance below zero"
-            )
-        );
-        return true;
-    }
 
     /**
      * @dev Moves tokens `amount` from `sender` to `recipient`.
@@ -1366,28 +1312,6 @@ contract DividendPayingToken is
                 .toUint256Safe() / magnitude;
     }
 
-    /// @dev Internal function that transfer tokens from one address to another.
-    /// Update magnifiedDividendCorrections to keep dividends unchanged.
-    /// @param from The address to transfer from.
-    /// @param to The address to transfer to.
-    /// @param value The amount to be transferred.
-    function _transfer(
-        address from,
-        address to,
-        uint256 value
-    ) internal virtual override {
-        require(false);
-
-        int256 _magCorrection = magnifiedDividendPerShare
-            .mul(value)
-            .toInt256Safe();
-        magnifiedDividendCorrections[from] = magnifiedDividendCorrections[from]
-            .add(_magCorrection);
-        magnifiedDividendCorrections[to] = magnifiedDividendCorrections[to].sub(
-            _magCorrection
-        );
-    }
-
     /// @dev Internal function that mints tokens to an account.
     /// Update magnifiedDividendCorrections to keep dividends unchanged.
     /// @param account The account that will receive the created tokens.
@@ -1439,19 +1363,23 @@ contract BNBBACK is ERC20, Ownable {
     address public liquidityWallet;
 
     address public deadWallet = 0x000000000000000000000000000000000000dEaD;
-    address payable public marketingAddress = payable(0x07163C487c9aD60863017BeBCFc8bFF71A13fD30);
+    address payable public marketingAddress = payable(0x2BB6D595B693731466C88F77D467eFFE8EF4b8eC);
 
     uint256 public swapTokensAtAmount = 200000 * (10**18);
 
     uint256 private marketingBuyFees = 3;
     uint256 private marketingSellFees = 3;
+    uint256 private marketingTransferFees = 3;
     uint256 private liquidityBuyFee = 2;
     uint256 private liquiditySellFee = 2;
+    uint256 private liquidityTransferFee = 2;
     uint256 private BNBRewardsBuyFee = 5;
     uint256 private BNBRewardsSellFee = 5;
+    uint256 private BNBRewardsTransferFee = 5;
 
     uint256 public totalBuyFees = marketingBuyFees.add(liquidityBuyFee).add(BNBRewardsBuyFee);
     uint256 public totalSellFees = marketingSellFees.add(liquiditySellFee).add(BNBRewardsSellFee);
+    uint256 public totalTransferFees = marketingTransferFees.add(liquidityTransferFee).add(BNBRewardsTransferFee);
     
     uint256 private countLiquidityFees = 0;
     uint256 private countBNBRewardsFee = 0;
@@ -1484,6 +1412,12 @@ contract BNBBACK is ERC20, Ownable {
         uint256 marketingSell,
         uint256 liquiditySell,
         uint256 BNBRewardsSell
+    );
+
+    event UpdateTransferFees(
+        uint256 marketingTransfer,
+        uint256 liquidityTransfer,
+        uint256 BNBRewardsTransfer
     );
 
     event ExcludeFromFees(address indexed account, bool isExcluded);
@@ -1664,6 +1598,19 @@ contract BNBBACK is ERC20, Ownable {
 
     }
 
+    function updateTransferFees(
+        uint256 newMarketingFee,
+        uint256 newLiquidityFee,
+        uint256 newBNBRewardsFee
+    ) public onlyOwner {
+        marketingTransferFees = newMarketingFee;
+        liquidityTransferFee = newLiquidityFee;
+        BNBRewardsTransferFee = newBNBRewardsFee;
+        totalTransferFees = marketingTransferFees.add(liquidityTransferFee).add(BNBRewardsTransferFee);
+        emit UpdateTransferFees(newMarketingFee, newLiquidityFee, newBNBRewardsFee);
+
+    }
+
     function getTotalDividendsDistributed() external view returns (uint256) {
         return dividendTracker.totalDividendsDistributed();
     }
@@ -1770,14 +1717,11 @@ contract BNBBACK is ERC20, Ownable {
             super._transfer(from, to, 0);
             return;
         } else if (
-            !swapping && !_isExcludedFromFees[from] && !_isExcludedFromFees[to] && (to == address(uniswapV2Pair) || from == address(uniswapV2Pair))
+            !swapping && !_isExcludedFromFees[from] && !_isExcludedFromFees[to]
         ) {
             bool isSelling = automatedMarketMakerPairs[to];
+            bool isBuying = automatedMarketMakerPairs[from];
 
-            
-            marketingFeeActual = marketingBuyFees;
-            liquidityFeeActual = liquidityBuyFee;
-            BNBRewardsFeeActual = BNBRewardsBuyFee;
 
             if (
                 isSelling && // sells only by detecting transfer to automated market maker pair
@@ -1787,6 +1731,22 @@ contract BNBBACK is ERC20, Ownable {
                 marketingFeeActual = marketingSellFees;
                 liquidityFeeActual = liquiditySellFee;
                 BNBRewardsFeeActual = BNBRewardsSellFee;
+            }
+
+            else if (
+                isBuying &&
+                to != address(uniswapV2Router)
+            ) {
+                 marketingFeeActual = marketingBuyFees;
+                 liquidityFeeActual = liquidityBuyFee;
+                 BNBRewardsFeeActual = BNBRewardsBuyFee;
+               
+            }else{
+
+                marketingFeeActual = marketingTransferFees;
+                liquidityFeeActual = liquidityTransferFee;
+                BNBRewardsFeeActual = BNBRewardsTransferFee;
+
             }
 
             uint256 contractTokenBalance = balanceOf(address(this));
